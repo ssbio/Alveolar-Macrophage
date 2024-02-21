@@ -1,0 +1,285 @@
+from __future__ import absolute_import
+from multiprocessing import freeze_support
+import cobra
+import gurobipy as gp
+from gurobipy import GRB
+import numpy as np
+
+
+class OptKnock(object):
+    def __init__(self, model, ExcludedU, ExcludedL, ExcludedK, MustL, MustU, MustDel, M1min, M1max, M2min, M2max, M1, M2):
+        self.cobra_model = model.copy()
+        self.gurobi_model = gp.Model()
+        self.ExcludedU = ExcludedU
+        self.ExcludedL = ExcludedL
+        self.ExcludedK = ExcludedK
+        self.MustL = MustL
+        self.MustU = MustU
+        self.MustDel = MustDel
+        self.phenomin = M1min
+        self.phenomax = M1max
+        self.basemin = M2min
+        self.basemax = M2max
+        self.M1 = M1
+        self.M2 = M2
+
+    def solve(self):
+        # parameters
+        bigM = 1000
+        epsilon = 1E-6
+        nMax = 8310
+        k = 5
+        index = range(500)
+        matrix1 = np.matrix((index, len(self.cobra_model.reactions)))
+        matrix2 = np.matrix((index, len(self.cobra_model.reactions)))
+        matrix3 = np.matrix((index, len(self.cobra_model.reactions)))
+        matrix1_flux = np.matrix((index, len(self.cobra_model.reactions)))
+        matrix2_flux = np.matrix((index, len(self.cobra_model.reactions)))
+        matrix3_flux = np.matrix((index, len(self.cobra_model.reactions)))
+
+        # vars
+        v = {}
+        mu = {}
+        lambda_var = {}
+        wtheta = {}
+        wphi = {}
+        wdeltap = {}
+        wdeltam = {}
+        dummy = {}
+        objective = {}
+
+        # Positive vars
+        theta = {}
+        phi = {}
+        deltam = {}
+        deltap = {}
+
+        # Binary vars
+        yu = {}
+        yl = {}
+        y0 = {}
+
+        # equations
+        outer2 = {}
+        outer4 = {}
+        outer5 = {}
+        outer6 = {}
+        outer7 = {}
+        outer8 = {}
+        outer9 = {}
+        outer10 = {}
+        outer11 = {}
+        outer12 = {}
+        outer13 = {}
+        outer14 = {}
+        outer15 = {}
+        outer16 = {}
+        outer17 = {}
+        outer18 = {}
+        outer19 = {}
+        outer20 = {}
+        outer21 = {}
+        outer22 = {}
+        outer23 = {}
+
+        primal1 = {}
+        primal2 = {}
+        primal3 = {}
+        primal4 = {}
+        primal5 = {}
+        abs1 = {}
+        abs2 = {}
+
+        dual1 = {}
+
+        z = self.gurobi_model.addVar(name="z", lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+        k = self.gurobi_model.addVar(name="k", lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+
+        for rxn in self.cobra_model.reactions:
+            v[rxn.id] = self.gurobi_model.addVar(name="v_{}".format(rxn.id), lb=rxn.lower_bound, ub=rxn.upper_bound, vtype=GRB.CONTINUOUS)
+            mu[rxn.id] = self.gurobi_model.addVar(name="mu_{}".format(rxn.id), lb=-GRB.INFINITY,ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            lambda_var[rxn.id] = self.gurobi_model.addVar(name="lambda_var_{}".format(rxn.id), lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            wtheta[rxn.id] = self.gurobi_model.addVar(name="wtheta_{}".format(rxn.id), lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            wphi[rxn.id] = self.gurobi_model.addVar(name="wphi_{}".format(rxn.id), lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            wdeltap[rxn.id] = self.gurobi_model.addVar(name="wdeltap_{}".format(rxn.id), lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            wdeltam[rxn.id] = self.gurobi_model.addVar(name="wdeltam_{}".format(rxn.id), lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            theta[rxn.id] = self.gurobi_model.addVar(name="theta_{}".format(rxn.id), lb=0, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            phi[rxn.id] = self.gurobi_model.addVar(name="phi_{}".format(rxn.id), lb=0, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            deltap[rxn.id] = self.gurobi_model.addVar(name="deltap_{}".format(rxn.id), lb=0, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            deltam[rxn.id] = self.gurobi_model.addVar(name="deltam_{}".format(rxn.id), lb=0, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            dummy[rxn.id] = self.gurobi_model.addVar(name="dummy_{}".format(rxn.id), lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS)
+            yu[rxn.id] = self.gurobi_model.addVar(name="yu_{}".format(rxn.id), lb=0, ub=1, vtype=GRB.BINARY)
+            yl[rxn.id] = self.gurobi_model.addVar(name="yl_{}".format(rxn.id), lb=0, ub=1, vtype=GRB.BINARY)
+            y0[rxn.id] = self.gurobi_model.addVar(name="y0_{}".format(rxn.id), lb=0, ub=1, vtype=GRB.BINARY)
+
+            if rxn.id == "biomass_mac": 
+                v[rxn.id].ub = 0.7
+            if rxn.id not in self.MustU:
+                yu[rxn.id].lb, yu[rxn.id].ub = 0, 0
+            if rxn.id not in self.MustL:
+                yl[rxn.id].lb, yl[rxn.id].ub = 0, 0
+
+        outer = self.gurobi_model.addConstr(z == gp.quicksum([yu[rxn.id] + yl[rxn.id] + y0[rxn.id] for rxn in self.cobra_model.reactions]), name="outer")
+        outer1 = self.gurobi_model.addConstr(k == gp.quicksum([yu[rxn.id] + yl[rxn.id] + y0[rxn.id] for rxn in self.cobra_model.reactions]), name="outer1")
+        primaldual = self.gurobi_model.addConstr(
+            sum([deltap[rxn.id] * rxn.upper_bound - deltap[rxn.id] * y0[rxn.id] * rxn.upper_bound for rxn in self.cobra_model.reactions]) -
+            sum([deltap[rxn.id] * rxn.lower_bound - deltap[rxn.id] * y0[rxn.id] * rxn.lower_bound for rxn in self.cobra_model.reactions]) ==
+            sum([dummy[rxn.id] for rxn in self.cobra_model.reactions]), name="primaldual")
+
+        for rxn in self.cobra_model.reactions:
+            outer2[rxn.id] = self.gurobi_model.addConstr(yu[rxn.id] + yl[rxn.id] + y0[rxn.id] <= 1, name="outer2_{}".format(rxn.id))
+            outer4[rxn.id] = self.gurobi_model.addConstr(wtheta[rxn.id] <= bigM * yu[rxn.id], name="outer4_{}".format(rxn.id))
+            outer5[rxn.id] = self.gurobi_model.addConstr(wtheta[rxn.id] >= -bigM * yu[rxn.id], name="outer5_{}".format(rxn.id))
+            outer6[rxn.id] = self.gurobi_model.addConstr(wtheta[rxn.id] <= theta[rxn.id] + bigM * (1-yu[rxn.id]), name="outer6_{}".format(rxn.id))
+            outer7[rxn.id] = self.gurobi_model.addConstr(wtheta[rxn.id] >= theta[rxn.id] - bigM * (1-yu[rxn.id]), name="outer7_{}".format(rxn.id))
+
+            outer8[rxn.id] = self.gurobi_model.addConstr(wphi[rxn.id] <= bigM * yl[rxn.id], name="outer8_{}".format(rxn.id))
+            outer9[rxn.id] = self.gurobi_model.addConstr(wphi[rxn.id] >= -bigM * yl[rxn.id], name="outer9_{}".format(rxn.id))
+            outer10[rxn.id] = self.gurobi_model.addConstr(wphi[rxn.id] <= phi[rxn.id] + bigM * (1-yl[rxn.id]), name="outer10_{}".format(rxn.id))
+            outer11[rxn.id] = self.gurobi_model.addConstr(wphi[rxn.id] >= phi[rxn.id] - bigM * (1-yl[rxn.id]), name="outer11_{}".format(rxn.id))
+
+            outer12[rxn.id] = self.gurobi_model.addConstr(wdeltap[rxn.id] <= bigM * y0[rxn.id], name="outer12_{}".format(rxn.id))
+            outer13[rxn.id] = self.gurobi_model.addConstr(wdeltap[rxn.id] >= -bigM * y0[rxn.id], name="outer13_{}".format(rxn.id))
+            outer14[rxn.id] = self.gurobi_model.addConstr(wdeltap[rxn.id] <= deltap[rxn.id] + bigM * (1-y0[rxn.id]), name="outer14_{}".format(rxn.id))
+            outer15[rxn.id] = self.gurobi_model.addConstr(wdeltap[rxn.id] >= deltap[rxn.id] - bigM * (1-y0[rxn.id]), name="outer15_{}".format(rxn.id))
+
+            outer16[rxn.id] = self.gurobi_model.addConstr(wdeltam[rxn.id] <= bigM * y0[rxn.id], name="outer16_{}".format(rxn.id))
+            outer17[rxn.id] = self.gurobi_model.addConstr(wdeltam[rxn.id] >= -bigM * y0[rxn.id], name="outer17_{}".format(rxn.id))
+            outer18[rxn.id] = self.gurobi_model.addConstr(wdeltam[rxn.id] <= deltam[rxn.id] + bigM * (1-y0[rxn.id]), name="outer18_{}".format(rxn.id))
+            outer19[rxn.id] = self.gurobi_model.addConstr(wdeltam[rxn.id] >= deltam[rxn.id] - bigM * (1-y0[rxn.id]), name="outer19_{}".format(rxn.id))
+
+            if rxn.id in self.ExcludedU:
+                outer21[rxn.id] = self.gurobi_model.addConstr(yu[rxn.id] == 0, name="outer21_{}".format(rxn.id))
+            if rxn.id in self.ExcludedL:
+                outer22[rxn.id] = self.gurobi_model.addConstr(yl[rxn.id] == 0, name="outer22_{}".format(rxn.id))
+            if rxn.id in self.ExcludedK:
+                outer23[rxn.id] = self.gurobi_model.addConstr(y0[rxn.id] == 0, name="outer23_{}".format(rxn.id))
+
+            primal2[rxn.id] = self.gurobi_model.addConstr(v[rxn.id] >= self.phenomin[rxn.id] * yu[rxn.id] + rxn.lower_bound * (1-yu[rxn.id]), name="primal2_{}".format(rxn.id))
+            primal3[rxn.id] = self.gurobi_model.addConstr(v[rxn.id] <= self.phenomin[rxn.id] * yl[rxn.id] + rxn.upper_bound * (1-yl[rxn.id]), name="primal3_{}".format(rxn.id))
+            primal4[rxn.id] = self.gurobi_model.addConstr(v[rxn.id] >= rxn.lower_bound * (1 - y0[rxn.id]), name="primal4_{}".format(rxn.id))
+            primal5[rxn.id] = self.gurobi_model.addConstr(v[rxn.id] <= rxn.upper_bound * (1 - y0[rxn.id]), name="primal5_{}".format(rxn.id))
+            abs1[rxn.id] = self.gurobi_model.addConstr(-(self.M1[rxn.id] - self.M2[rxn.id] <= dummy[rxn.id]), name="abs1{}".format(rxn.id))
+            abs2[rxn.id] = self.gurobi_model.addConstr(self.M1[rxn.id] - self.M2[rxn.id] <= dummy[rxn.id], name="abs2{}".format(rxn.id))
+
+            # dual1 might not work properly, threw it together with a possibly broken pattern
+            dual1[rxn.id] = self.gurobi_model.addConstr(
+                sum(lambda_var[met.id] * met.reactions[rxn] + deltap[rxn.id] - deltam[rxn.id] for met in rxn.metabolites), name="dual{}".format(rxn.id))
+
+        for item in index:
+            outer20[item] = self.gurobi_model.addConstr(
+                sum([matrix1[item, self.cobra_model.reactions.index(rxn)] * yu[rxn.id] for rxn.id in self.cobra_model.reactions]) +
+                sum([matrix2[item, self.cobra_model.reactions.index(rxn)] * yl[rxn.id] for rxn.id in self.cobra_model.reactions]) +
+                sum([matrix3[item, self.cobra_model.reactions.index(rxn)] * y0[rxn.id] for rxn.id in self.cobra_model.reactions]) <= k -1,
+                name="outer20_{}".format(item))
+
+        for met in self.cobra_model.metabolites:
+            primal1[met.id] = self.gurobi_model.addConstr(sum(rxn.metabolites[met] * v[rxn.id] for rxn in met.reactions) == 0, name='mass_balance')
+
+        self.gurobi_model.setObjective(expr=z, sense=GRB.MINIMIZE)
+        self.gurobi_model.reset()
+
+        counter = 0
+        while counter < nMax:
+            self.gurobi_model.optimize()
+            if self.gurobi_model.status == GRB.OPTIMAL:
+                for rxn in self.cobra_model.reactions:
+                    if yu[rxn.id].X > 0.99:
+                        matrix1[counter, self.cobra_model.reactions.index(rxn)] = 1
+                        matrix1_flux[counter, self.cobra_model.reactions.index(rxn)] = v[rxn.id].X
+                    if yl[rxn.id].X > 0.99:
+                        matrix2[counter, self.cobra_model.reactions.index(rxn)] = 1
+                        matrix2_flux[counter, self.cobra_model.reactions.index(rxn)] = v[rxn.id].X
+                    if y0[rxn.id].X > 0.99:
+                        matrix3[counter, self.cobra_model.reactions.index(rxn)] = 1
+                        matrix3_flux[counter, self.cobra_model.reactions.index(rxn)] = v[rxn.id].X
+                objective[counter] = z.X
+                counter += 1
+            else:
+                counter = nMax
+
+        with open('M2try5iterations.txt', 'w') as forced:
+            forced.write("************Reactions to be upregulated****************************\n")
+            for rxn in self.cobra_model.reactions:
+                if rxn.id in self.MustU:
+                    forced.write(f"{rxn.id} {yu[rxn.id].X}\n")
+            forced.write("\n\n")
+            forced.write("************Reactions to be downregulated**************************\n")
+            for rxn in self.cobra_model.reactions:
+                if rxn.id in self.MustL:
+                    forced.write(f"{rxn.id} {yl[rxn.id].X}\n")
+            forced.write("\n\n")
+            forced.write("************Reactions to be deleted*******************************\n")
+            for rxn in self.cobra_model.reactions:
+                if rxn.id in self.MustDel:
+                    forced.write(f"{rxn.id} {y0[rxn.id].X}\n")
+
+def main():
+    cobra_model = cobra.io.read_sbml_model('M1.xml')
+
+    # subsets
+    excludedU_pre = open('Excluded_U.txt', 'r').readlines()
+    ExcludedU = []
+    for item in excludedU_pre:
+        ExcludedU.append(item.strip())
+    excludedL_pre = open('Excluded_L.txt', 'r').readlines()
+    ExcludedL = []
+    for item in excludedL_pre:
+        ExcludedL.append(item.strip())
+    excludedK_pre = open('Excluded_K.txt', 'r').readlines()
+    ExcludedK = []
+    for item in excludedK_pre:
+        ExcludedK.append(item.strip())
+    MustL_pre = open('MustL.txt', 'r').readlines()
+    MustL = []
+    for item in MustL_pre:
+        MustL.append(item.strip())
+    MustU_pre = open('MustU.txt', 'r').readlines()
+    MustU = []
+    for item in MustU_pre:
+        MustU.append(item.strip())
+    MustDel_pre = open('Mustdel.txt', 'r').readlines()
+    MustDel = []
+    for item in MustDel_pre:
+        MustDel.append(item.strip())
+
+    # parameters, they can be fixed according to the input file ( generally name o reaction followed by values, sedparated by a space)
+    basemin_pre = open('M2min.txt', 'r').readlines()
+    basemin = {}
+    for line in basemin_pre:
+        rxn_id= line.strip().split()[0]
+        basemin[rxn_id.strip()] = 0
+    basemax_pre = open('M2max.txt', 'r').readlines()
+    basemax = {}
+    for line in basemax_pre:
+        rxn_id = line.strip().split()[0]
+        basemax[rxn_id.strip()] = 0
+    phenomin_pre = open('M1min.txt', 'r').readlines()
+    phenomin = {}
+    for line in phenomin_pre:
+        rxn_id = line.strip().split()[0]
+        phenomin[rxn_id.strip()] = 0
+    phenomax_pre = open('M1max.txt', 'r').readlines()
+    phenomax = {}
+    for line in phenomax_pre:
+        rxn_id = line.strip().split()[0]
+        phenomax[rxn_id.strip()] = 0
+    M1_pre = open('M1flux.txt', 'r').readlines()
+    M1 = {}
+    for line in M1_pre:
+        rxn_id = line.strip().split()[0]
+        M1[rxn_id.strip()] = 0
+    M2_pre = open('M2flux.txt', 'r').readlines()
+    M2 = {}
+    for line in M2_pre:
+        rxn_id = line.strip().split()[0]
+        M2[rxn_id.strip()] = 0
+
+    OptKnock(cobra_model, ExcludedU, ExcludedL, ExcludedK,
+             MustL, MustU, MustDel, phenomin, phenomax,
+             basemin, basemax, M1, M2).solve()
+
+
+if __name__ == '__main__':
+    freeze_support()
+    main()
